@@ -30,7 +30,12 @@ export interface BackendEvent {
 }
 
 class RestaurantApiService {
-  private apiBaseUrl = '/api';
+  private apiBaseUrl = (() => {
+    const envBase = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim();
+    if (!envBase) return '/api';
+    const cleaned = envBase.replace(/\/+$/, '');
+    return cleaned.endsWith('/api') ? cleaned : `${cleaned}/api`;
+  })();
 
   // 1. Subscribe to Cross-Device Realtime Events (SSE + Supabase Realtime)
   public subscribeToRealtimeEvents(onEvent: (event: BackendEvent) => void): () => void {

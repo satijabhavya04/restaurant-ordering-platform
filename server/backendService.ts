@@ -92,11 +92,13 @@ class BackendService {
 
   // SSE Client registration
   public registerSseClient(res: ServerResponse) {
+    const originHeader = (res.getHeader('Access-Control-Allow-Origin') as string) || '*';
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
+      'Cache-Control': 'no-cache, no-transform',
       Connection: 'keep-alive',
-      'Access-Control-Allow-Origin': '*',
+      'X-Accel-Buffering': 'no',
+      'Access-Control-Allow-Origin': originHeader,
     });
 
     // Send initial handshake state sync
@@ -111,9 +113,19 @@ class BackendService {
     };
     res.write(`data: ${JSON.stringify(initialPayload)}\n\n`);
 
+    // Periodic heartbeat to prevent proxies/load balancers from closing idle SSE connections
+    const heartbeat = setInterval(() => {
+      try {
+        res.write(': keep-alive\n\n');
+      } catch {
+        clearInterval(heartbeat);
+      }
+    }, 25000);
+
     this.sseClients.add(res);
 
     res.on('close', () => {
+      clearInterval(heartbeat);
       this.sseClients.delete(res);
     });
   }
@@ -1012,8 +1024,10 @@ class BackendService {
     return {
       success: true,
       code: 'PAID',
+      paymentStatus: 'PAID',
       message: 'Demo payment completed successfully. Bill settled.',
       referenceId,
+      session,
     };
   }
 
@@ -1105,10 +1119,31 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
     return false;
   }
 
-  // CORS headers
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  // Dynamic CORS headers supporting FRONTEND_ORIGIN, localhost testing, and Vercel domains
+  const requestOrigin = req.headers.origin;
+  const configuredOrigin = process.env.FRONTEND_ORIGIN;
+  let allowedOrigin = '*';
+
+  if (requestOrigin) {
+    if (configuredOrigin && configuredOrigin !== '*') {
+      const allowedList = configuredOrigin.split(',').map((o) => o.trim());
+      const isLocalhost = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(requestOrigin);
+      const isVercel = requestOrigin.endsWith('.vercel.app');
+      if (allowedList.includes(requestOrigin) || isLocalhost || isVercel) {
+        allowedOrigin = requestOrigin;
+      }
+    } else {
+      allowedOrigin = requestOrigin;
+    }
+  }
+
+  res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Cache-Control');
+  if (allowedOrigin !== '*') {
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Vary', 'Origin');
+  }
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
