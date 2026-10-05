@@ -1,0 +1,22 @@
+﻿# Dependencies
+node_modules
+.pnp
+.pnp.js
+
+# Environment and Secrets (CRITICAL)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Production Build Artifacts
+dist
+build
+
+# Editor and OS
+.DS_Store
+Thumbs.db
+.vscode
+.idea
+*.log
